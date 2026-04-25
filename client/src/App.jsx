@@ -1,107 +1,287 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import axios from "axios";
+
+// ✅ PASTE YOUR RENDER BACKEND URL HERE
+const BACKEND_URL = "https://deepfake-ai-project.onrender.com";
 
 function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const [result, setResult] = useState("");
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [backendStatus, setBackendStatus] = useState("waking"); // "waking" | "ready"
+  const [preview, setPreview] = useState(null);
 
-  // Start camera
+  // Wake up Render backend on app load (free tier sleeps after inactivity)
+  useEffect(() => {
+    axios
+      .get(`${BACKEND_URL}/`)
+      .then(() => setBackendStatus("ready"))
+      .catch(() => setBackendStatus("ready")); // still set ready, let actual request fail with message
+  }, []);
+
+  // Start webcam
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       videoRef.current.srcObject = stream;
+      setCameraActive(true);
+      setResult(null);
+      setPreview(null);
     } catch (err) {
-      console.log("Camera error:", err);
-      setResult("Camera not allowed");
+      console.error("Camera error:", err);
+      setResult({ error: "Camera access denied or not available." });
     }
   };
 
-  // Send image to backend
-  const sendToBackend = async (blob) => {
+  // Stop webcam and release stream
+  const stopCamera = () => {
+    const stream = videoRef.current?.srcObject;
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  };
+
+  // Send image blob to Node backend → FastAPI
+  const sendToBackend = async (blob, previewUrl) => {
+    setLoading(true);
+    setResult(null);
+    if (previewUrl) setPreview(previewUrl);
+
+    const formData = new FormData();
+    formData.append("file", blob, "image.jpg");
+
     try {
-      setLoading(true);
-      setResult("");
+      const res = await axios.post(`${BACKEND_URL}/api/predict`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 90000, // 90s — Render free tier can be slow on cold start
+      });
 
-      const formData = new FormData();
-      formData.append("file", blob, "image.jpg");
-
-      const res = await axios.post(
-        "https://deepfake-ai-project.onrender.com/api/predict",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      console.log("Backend response:", res.data);
-
-      setResult(res.data?.prediction || "No response from server");
+      setResult({
+        prediction: res.data?.prediction ?? "Unknown",
+        confidence: res.data?.confidence ?? "N/A",
+      });
     } catch (err) {
-      console.log("API error:", err);
-      setResult("Error connecting to backend");
+      console.error("API error:", err);
+      if (err.code === "ECONNABORTED" || err.code === "ERR_NETWORK") {
+        setResult({ error: "Backend is still waking up. Please wait 30s and try again." });
+      } else {
+        setResult({
+          error: err.response?.data?.message || `Error: ${err.message}`,
+        });
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Capture from camera
-  const captureAndDetect = async () => {
+  // Capture frame from webcam
+  const captureAndDetect = () => {
+    if (!cameraActive) {
+      setResult({ error: "Start the camera first." });
+      return;
+    }
     const canvas = canvasRef.current;
     const video = videoRef.current;
-
     canvas.width = 224;
     canvas.height = 224;
-
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, 224, 224);
-
-    canvas.toBlob((blob) => {
-      if (blob) sendToBackend(blob);
-    }, "image/jpeg");
+    canvas.getContext("2d").drawImage(video, 0, 0, 224, 224);
+    const previewUrl = canvas.toDataURL("image/jpeg");
+    canvas.toBlob((blob) => blob && sendToBackend(blob, previewUrl), "image/jpeg");
   };
 
-  // Upload from gallery
-  const uploadImage = async (e) => {
+  // Upload from file input
+  const uploadImage = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      sendToBackend(file);
-    }
+    if (!file) return;
+    stopCamera();
+    const previewUrl = URL.createObjectURL(file);
+    sendToBackend(file, previewUrl);
+    e.target.value = ""; // reset so same file can be re-uploaded
   };
+
+  const isFake = result?.prediction === "Fake";
+  const isReal = result?.prediction === "Real";
 
   return (
-    <div style={{ textAlign: "center", padding: "20px" }}>
-      <h1>Deepfake Detector</h1>
+    <div style={styles.page}>
+      <div style={styles.card}>
+        <h1 style={styles.title}>Deepfake Detector</h1>
+        <p style={styles.subtitle}>Upload an image or use your camera to detect AI-generated faces.</p>
 
-      {/* Video */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        style={{ width: "300px", border: "1px solid black" }}
-      />
+        {/* Backend status */}
+        {backendStatus === "waking" && (
+          <div style={styles.statusBanner}>
+            ⏳ Waking up backend server (free tier — may take ~30s)…
+          </div>
+        )}
 
-      <canvas ref={canvasRef} style={{ display: "none" }} />
+        {/* Video preview */}
+        <div style={styles.videoContainer}>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{ ...styles.video, display: cameraActive ? "block" : "none" }}
+          />
+          {preview && !cameraActive && (
+            <img src={preview} alt="Preview" style={styles.video} />
+          )}
+          {!cameraActive && !preview && (
+            <div style={styles.placeholder}>📷 Camera / Upload preview</div>
+          )}
+        </div>
 
-      <div style={{ marginTop: "10px" }}>
-        <button onClick={startCamera}>Start Camera</button>
-        <button onClick={captureAndDetect}>Capture & Detect</button>
+        <canvas ref={canvasRef} style={{ display: "none" }} />
+
+        {/* Controls */}
+        <div style={styles.controls}>
+          {!cameraActive ? (
+            <button style={styles.btnPrimary} onClick={startCamera}>
+              Start Camera
+            </button>
+          ) : (
+            <>
+              <button style={styles.btnPrimary} onClick={captureAndDetect} disabled={loading}>
+                {loading ? "Analysing…" : "Capture & Detect"}
+              </button>
+              <button style={styles.btnSecondary} onClick={stopCamera}>
+                Stop Camera
+              </button>
+            </>
+          )}
+
+          <label style={styles.btnSecondary}>
+            Upload Image
+            <input
+              type="file"
+              accept="image/*"
+              onChange={uploadImage}
+              style={{ display: "none" }}
+            />
+          </label>
+        </div>
+
+        {/* Result */}
+        {loading && <div style={styles.resultBox}>🔍 Analysing image…</div>}
+
+        {result && !loading && (
+          <div
+            style={{
+              ...styles.resultBox,
+              borderColor: result.error ? "#f59e0b" : isFake ? "#ef4444" : "#22c55e",
+              background: result.error
+                ? "#fef3c7"
+                : isFake
+                ? "#fee2e2"
+                : "#dcfce7",
+              color: result.error ? "#92400e" : isFake ? "#991b1b" : "#14532d",
+            }}
+          >
+            {result.error ? (
+              <span>⚠️ {result.error}</span>
+            ) : (
+              <>
+                <span style={{ fontSize: "1.4rem" }}>
+                  {isFake ? "🚨" : "✅"} {result.prediction}
+                </span>
+                <span style={{ fontSize: "0.9rem", marginTop: 4, display: "block" }}>
+                  Confidence: {result.confidence}
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </div>
-
-      <div style={{ marginTop: "10px" }}>
-        <input type="file" accept="image/*" onChange={uploadImage} />
-      </div>
-
-      <h2>
-        {loading ? "Processing..." : `Result: ${result}`}
-      </h2>
     </div>
   );
 }
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "#0f172a",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "'Segoe UI', sans-serif",
+    padding: "20px",
+  },
+  card: {
+    background: "#1e293b",
+    borderRadius: "16px",
+    padding: "32px",
+    width: "100%",
+    maxWidth: "520px",
+    boxShadow: "0 24px 48px rgba(0,0,0,0.4)",
+    color: "#f1f5f9",
+  },
+  title: { margin: "0 0 8px", fontSize: "1.8rem", fontWeight: 700, color: "#f8fafc" },
+  subtitle: { margin: "0 0 20px", fontSize: "0.9rem", color: "#94a3b8" },
+  statusBanner: {
+    background: "#1d4ed8",
+    color: "#bfdbfe",
+    borderRadius: "8px",
+    padding: "10px 14px",
+    fontSize: "0.85rem",
+    marginBottom: "16px",
+  },
+  videoContainer: {
+    width: "100%",
+    aspectRatio: "4/3",
+    background: "#0f172a",
+    borderRadius: "10px",
+    overflow: "hidden",
+    marginBottom: "16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  video: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  placeholder: { color: "#475569", fontSize: "0.9rem" },
+  controls: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+    marginBottom: "16px",
+  },
+  btnPrimary: {
+    flex: 1,
+    padding: "10px 16px",
+    background: "#3b82f6",
+    color: "#fff",
+    border: "none",
+    borderRadius: "8px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontSize: "0.9rem",
+    minWidth: "120px",
+  },
+  btnSecondary: {
+    flex: 1,
+    padding: "10px 16px",
+    background: "#334155",
+    color: "#cbd5e1",
+    border: "1px solid #475569",
+    borderRadius: "8px",
+    fontWeight: 500,
+    cursor: "pointer",
+    fontSize: "0.9rem",
+    minWidth: "120px",
+    textAlign: "center",
+  },
+  resultBox: {
+    borderRadius: "10px",
+    padding: "16px",
+    border: "2px solid",
+    textAlign: "center",
+    fontWeight: 600,
+    transition: "all 0.3s",
+  },
+};
 
 export default App;
