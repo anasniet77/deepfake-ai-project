@@ -14,12 +14,28 @@ function App() {
   const [preview, setPreview] = useState(null);
 
   // Wake up Render backend on app load (free tier sleeps after inactivity)
-  useEffect(() => {
+ useEffect(() => {
+  let attempts = 0;
+  const maxAttempts = 10; // try for ~50 seconds
+
+  const ping = () => {
+    attempts++;
     axios
       .get(`${BACKEND_URL}/`)
-      .then(() => setBackendStatus("ready"))
-      .catch(() => setBackendStatus("ready")); // still set ready, let actual request fail with message
-  }, []);
+      .then(() => {
+        setBackendStatus("ready");
+      })
+      .catch(() => {
+        if (attempts < maxAttempts) {
+          setTimeout(ping, 5000); // retry every 5 seconds
+        } else {
+          setBackendStatus("ready"); // stop showing banner after 50s anyway
+        }
+      });
+  };
+
+  ping();
+}, []);
 
   // Start webcam
   const startCamera = async () => {
@@ -114,10 +130,14 @@ function App() {
 
         {/* Backend status */}
         {backendStatus === "waking" && (
-          <div style={styles.statusBanner}>
-            ⏳ Waking up backend server (free tier — may take ~30s)…
-          </div>
-        )}
+  <div style={styles.statusBanner}>
+    ⏳ Waking up backend server... this takes ~30s on first load.
+    <br />
+    <span style={{ fontSize: "0.8rem", opacity: 0.8 }}>
+      You can still upload — it will wait automatically.
+    </span>
+  </div>
+)}
 
         {/* Video preview */}
         <div style={styles.videoContainer}>
