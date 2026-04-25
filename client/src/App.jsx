@@ -15,26 +15,10 @@ function App() {
 
   // Wake up Render backend on app load (free tier sleeps after inactivity)
  useEffect(() => {
-  let attempts = 0;
-  const maxAttempts = 10; // try for ~50 seconds
-
-  const ping = () => {
-    attempts++;
-    axios
-      .get(`${BACKEND_URL}/`)
-      .then(() => {
-        setBackendStatus("ready");
-      })
-      .catch(() => {
-        if (attempts < maxAttempts) {
-          setTimeout(ping, 5000); // retry every 5 seconds
-        } else {
-          setBackendStatus("ready"); // stop showing banner after 50s anyway
-        }
-      });
-  };
-
-  ping();
+  // Wake up Node backend
+  axios.get(`${BACKEND_URL}/`).catch(() => {});
+  // Wake up FastAPI directly
+  axios.get(`https://deepfake-ai-api.onrender.com/`).catch(() => {});
 }, []);
 
   // Start webcam

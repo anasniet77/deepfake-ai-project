@@ -85,7 +85,7 @@ app.post("/api/predict", upload.single("file"), async (req, res) => {
     // ✅ AI_API_URL should be: https://your-fastapi-host.com/predict
     const response = await axios.post(process.env.AI_API_URL, formData, {
       headers: formData.getHeaders(),
-      timeout: 60000,
+      timeout: 1200000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
     });
@@ -141,3 +141,13 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`AI_API_URL: ${process.env.AI_API_URL || "⚠️ NOT SET"}`);
 });
+// Wake up FastAPI on startup
+const wakeUpAI = async () => {
+  try {
+    const res = await axios.get(process.env.AI_API_URL.replace("/predict", "/"));
+    console.log("AI API is awake:", res.data);
+  } catch (err) {
+    console.log("AI API wake-up ping failed:", err.message);
+  }
+};
+wakeUpAI();
