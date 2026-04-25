@@ -85,7 +85,7 @@ app.post("/api/predict", upload.single("file"), async (req, res) => {
     // ✅ AI_API_URL should be: https://your-fastapi-host.com/predict
     const response = await axios.post(process.env.AI_API_URL, formData, {
       headers: formData.getHeaders(),
-      timeout: 1200000,
+      timeout: 120000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
     });
