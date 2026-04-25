@@ -18,7 +18,8 @@ app.post("/api/predict", upload.single("file"), async (req, res) => {
 
     form.append(
       "file",
-      fs.createReadStream(req.file.path)
+      fs.createReadStream(req.file.path),
+      req.file.originalname
     );
 
     const response = await axios.post(
@@ -34,8 +35,11 @@ app.post("/api/predict", upload.single("file"), async (req, res) => {
     res.json(response.data);
 
   } catch (err) {
-    console.log(err);
-    res.json({ prediction: "Error", confidence: "0%" });
+    console.log("ERROR:", err.message);
+    res.status(500).json({
+      prediction: "Error",
+      confidence: "0%"
+    });
   }
 });
 
