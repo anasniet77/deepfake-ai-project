@@ -81,15 +81,18 @@ function App() {
         confidence: res.data?.confidence ?? "N/A",
       });
     } catch (err) {
-      console.error("API error:", err);
-      if (err.code === "ECONNABORTED" || err.code === "ERR_NETWORK") {
-        setResult({ error: "Backend is still waking up. Please wait 30s and try again." });
-      } else {
-        setResult({
-          error: err.response?.data?.message || `Error: ${err.message}`,
-        });
-      }
-    } finally {
+  console.error("API error:", err);
+  if (err.response) {
+    // Server responded with 500 — backend is UP but crashed
+    setResult({
+      error: `Server error (${err.response.status}): ${err.response.data?.message || "Check Render logs"}`,
+    });
+  } else if (err.code === "ECONNABORTED") {
+    setResult({ error: "Request timed out. Backend may be sleeping." });
+  } else {
+    setResult({ error: `Network error: ${err.message}` });
+  }
+} finally {
       setLoading(false);
     }
   };
