@@ -11,7 +11,7 @@ const app = express();
 
 // ✅ PASTE YOUR VERCEL FRONTEND URL HERE (and localhost for dev)
 const ALLOWED_ORIGINS = [
-  "https://deepfake-ai-project-q2zw.vercel.app/", // <-- replace with your Vercel URL
+  process.env.FRONTEND_URL,
   "http://localhost:5173",
   "http://localhost:3000",
 ];
